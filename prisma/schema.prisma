@@ -1,0 +1,761 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 用户系统 ====================
+model User {
+  id            String    @id @default(uuid())
+  username      String    @unique
+  email         String    @unique
+  password      String
+  nickname      String?
+  avatar        String?   @default("/static/default-avatar.png")
+  bio           String?   @db.Text
+  phone         String?
+  qq            String?
+  wechat        String?
+  github        String?
+  role          Role      @default(USER)
+  title         String?   // 自定义头衔
+  badge         String?   // 勋章标识
+  points        Int       @default(0)
+  exp           Int       @default(0)
+  level         Int       @default(1)
+  postCount     Int       @default(0)
+  commentCount  Int       @default(0)
+  likeCount     Int       @default(0)
+  isBanned      Boolean   @default(false)
+  banReason     String?
+  banExpiresAt  DateTime?
+  isMuted       Boolean   @default(false)
+  muteExpiresAt DateTime?
+  twoFactorSecret String?
+  twoFactorEnabled Boolean @default(false)
+  lastLoginAt   DateTime?
+  lastLoginIp   String?
+  loginDevices  Json?     // 设备列表
+  inviteCode    String?
+  invitedBy     String?
+  status        UserStatus @default(ACTIVE)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  posts         Post[]
+  comments      Comment[]
+  likes         Like[]
+  reports       Report[]      @relation("ReportedUser")
+  reportBy      Report[]      @relation("ReportByUser")
+  notifications Notification[]
+  sentMessages  Message[]     @relation("SentMessages")
+  receivedMessages Message[]  @relation("ReceivedMessages")
+  orders        Order[]
+  products      Product[]
+  reviews       Review[]
+  userBadges    UserBadge[]
+  loginLogs     LoginLog[]
+  operations    OperationLog[]
+  inviteCodes   InviteCode[]  @relation("InviteCodeCreator")
+  usedInviteCodes InviteCode[] @relation("InviteCodeUsed")
+  drafts        Draft[]
+  favorites     Favorite[]
+   disputes     Dispute[]     @relation("DisputeBuyer")
+   soldDisputes  Dispute[]    @relation("DisputeSeller")
+   handledDisputes Dispute[]  @relation("DisputeHandler")
+   csSessions    CustomerServiceSession[] @relation("CSSessionUser")
+   csAgentSessions CustomerServiceSession[] @relation("CSSessionAgent")
+   csMessages    CustomerServiceMessage[]
+   agentStatus   AgentStatus?
+   boughtOrders  Order[] @relation("OrderBuyer")
+   soldOrders    Order[] @relation("OrderSeller")
+  @@index([username])
+  @@index([email])
+  @@index([role])
+}
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+  SUPERADMIN
+  CUSTOMER_SERVICE
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING
+  BANNED
+  DELETED
+}
+
+// ==================== 论坛系统 ====================
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  icon        String?
+  color       String?
+  sortOrder   Int      @default(0)
+  isHidden    Boolean  @default(false)
+  parentId    String?
+  parent      Category?  @relation("CategoryChildren", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryChildren")
+  posts       Post[]
+  moderators  CategoryModerator[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([slug])
+}
+
+model CategoryModerator {
+  id         String   @id @default(uuid())
+  userId     String
+  categoryId String
+  user       User     @relation(fields: [userId], references: [id])
+  category   Category @relation(fields: [categoryId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, categoryId])
+}
+
+model Post {
+   id          String      @id @default(uuid())
+   title       String
+   slug        String?     @unique
+   content     String      @db.Text
+  contentType ContentType @default(MARKDOWN)
+  excerpt     String?
+  coverImage  String?
+  isPinned    Boolean     @default(false)
+  isFeatured  Boolean     @default(false)
+  isClosed    Boolean     @default(false)
+  isDraft     Boolean     @default(false)
+  isApproved  Boolean     @default(true)
+  isDeleted   Boolean     @default(false)
+  deletedAt   DateTime?
+  viewCount   Int         @default(0)
+  likeCount   Int         @default(0)
+  commentCount Int        @default(0)
+  favoriteCount Int       @default(0)
+  scheduledAt DateTime?   // 定时发布
+  tags        Json?       // 标签数组
+  authorId    String
+  categoryId  String
+  author      User       @relation(fields: [authorId], references: [id])
+  category    Category   @relation(fields: [categoryId], references: [id])
+  comments    Comment[]
+  likes       Like[]
+  reports     Report[]
+  reviews     Review[]
+  favorites   Favorite[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([authorId])
+  @@index([categoryId])
+  @@index([isPinned, isFeatured])
+  @@index([createdAt])
+  @@index([isDeleted])
+}
+
+enum ContentType {
+  MARKDOWN
+  HTML
+  JSON
+}
+
+model Comment {
+  id          String   @id @default(uuid())
+  content     String   @db.Text
+  isDeleted   Boolean  @default(false)
+  isApproved  Boolean  @default(true)
+  likeCount   Int      @default(0)
+  authorId    String
+  postId      String
+  parentId    String?
+  parent      Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies     Comment[] @relation("CommentReplies")
+  author      User     @relation(fields: [authorId], references: [id])
+  post        Post     @relation(fields: [postId], references: [id])
+  likes       Like[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([postId])
+  @@index([authorId])
+}
+
+model Like {
+  id        String   @id @default(uuid())
+  userId    String
+  postId    String?
+  commentId String?
+  user      User     @relation(fields: [userId], references: [id])
+  post      Post?    @relation(fields: [postId], references: [id])
+  comment   Comment? @relation(fields: [commentId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, postId])
+  @@unique([userId, commentId])
+}
+
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  postId    String
+  user      User     @relation(fields: [userId], references: [id])
+  post      Post     @relation(fields: [postId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, postId])
+}
+
+// ==================== 举报系统 ====================
+model Report {
+  id          String      @id @default(uuid())
+  reason      String
+  description String?     @db.Text
+  status      ReportStatus @default(PENDING)
+  type        ReportType
+  targetId    String      // 被举报的帖子/评论/用户ID
+  reporterId  String
+  handlerId   String?
+  handleNote  String?     @db.Text
+  reporter    User        @relation("ReportByUser", fields: [reporterId], references: [id])
+  handler     User?       @relation("ReportedUser", fields: [handlerId], references: [id])
+  post        Post?       @relation(fields: [targetId], references: [id])
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([status])
+  @@index([targetId])
+}
+
+enum ReportStatus {
+  PENDING
+  PROCESSING
+  RESOLVED
+  REJECTED
+}
+
+enum ReportType {
+  POST
+  COMMENT
+  USER
+}
+
+// ==================== 通知系统 ====================
+model Notification {
+  id        String           @id @default(uuid())
+  type      NotificationType
+  title     String
+  content   String?
+  data      Json?
+  isRead    Boolean          @default(false)
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])
+}
+
+enum NotificationType {
+  SYSTEM
+  POST_LIKE
+  POST_COMMENT
+  COMMENT_LIKE
+  MENTION
+  FOLLOW
+  ORDER
+  REPORT_RESULT
+  ANNOUNCEMENT
+}
+
+// ==================== 私信系统 ====================
+model Message {
+  id         String      @id @default(uuid())
+  content    String      @db.Text
+  type       MessageType @default(TEXT)
+  isRead     Boolean     @default(false)
+  senderId   String
+  receiverId String
+  sender     User        @relation("SentMessages", fields: [senderId], references: [id])
+  receiver   User        @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  createdAt  DateTime    @default(now())
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([senderId, receiverId])
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  SYSTEM
+}
+
+// ==================== 交易系统 ====================
+model Product {
+  id          String        @id @default(uuid())
+  title       String
+  description String        @db.Text
+  price       Float
+  originalPrice Float?
+  images      Json?         // 图片数组
+  category    String?       // 商品分类
+  gameName    String?       // 游戏名称
+  gameServer  String?       // 游戏区服
+  gameAccount String?       // 游戏账号信息
+  stock       Int           @default(1)
+  sales       Int           @default(0)
+  status      ProductStatus @default(ACTIVE)
+  isFeatured  Boolean       @default(false)
+  sellerId    String
+  seller      User          @relation(fields: [sellerId], references: [id])
+  orders      Order[]
+  reviews     Review[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([sellerId])
+  @@index([status])
+  @@index([category])
+}
+
+enum ProductStatus {
+  ACTIVE
+  SOLD_OUT
+  OFFLINE
+  DELETED
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  orderNo       String      @unique
+  quantity      Int         @default(1)
+  totalAmount   Float
+  status        OrderStatus @default(PENDING)
+  paymentMethod String?
+  paymentNo     String?
+  paidAt        DateTime?
+  deliveredAt   DateTime?
+  completedAt   DateTime?
+  refundStatus  RefundStatus @default(NONE)
+  refundAmount  Float?
+  refundReason  String?
+  refundedAt    DateTime?
+  buyerNote     String?
+  sellerNote    String?
+  adminNote     String?
+  buyerId       String
+  sellerId      String
+  productId     String
+  buyer         User        @relation("OrderBuyer", fields: [buyerId], references: [id])
+  seller        User        @relation("OrderSeller", fields: [sellerId], references: [id])
+  product       Product     @relation(fields: [productId], references: [id])
+  reviews       Review[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([orderNo])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  DISPUTE
+  REFUNDED
+}
+
+enum RefundStatus {
+  NONE
+  REQUESTED
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  rating    Int      // 1-5
+  images    Json?
+  userId    String
+  productId String
+  orderId   String
+  user      User     @relation(fields: [userId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+  order     Order    @relation(fields: [orderId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, orderId])
+}
+
+// ==================== 勋章系统 ====================
+model Badge {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+  icon        String?
+  color       String?
+  condition   String? @db.Text // JSON: 获取条件
+  isActive    Boolean @default(true)
+  userBadges  UserBadge[]
+  createdAt   DateTime @default(now())
+}
+
+model UserBadge {
+  id        String   @id @default(uuid())
+  userId    String
+  badgeId   String
+  user      User     @relation(fields: [userId], references: [id])
+  badge     Badge    @relation(fields: [badgeId], references: [id])
+  earnedAt  DateTime @default(now())
+
+  @@unique([userId, badgeId])
+}
+
+// ==================== 邀请码系统 ====================
+model InviteCode {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  maxUses     Int      @default(1)
+  usedCount   Int      @default(0)
+  isActive    Boolean  @default(true)
+  expiresAt   DateTime?
+  creatorId   String
+  usedById    String?
+  creator     User     @relation("InviteCodeCreator", fields: [creatorId], references: [id])
+  usedBy      User?    @relation("InviteCodeUsed", fields: [usedById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([code])
+}
+
+// ==================== 系统设置 ====================
+model Setting {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String @db.Text
+  group String @default("general")
+  label String?
+  type  String @default("string") // string, number, boolean, json, color, image, rich_text
+
+  @@index([group])
+}
+
+// ==================== 页面管理 ====================
+model Page {
+   id        String   @id @default(uuid())
+   title     String
+   slug      String   @unique
+   content   String   @db.Text
+  isPublished Boolean @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+}
+
+// ==================== 公告系统 ====================
+model Announcement {
+  id        String   @id @default(uuid())
+  title     String
+  content   String   @db.Text
+  type      String   @default("info") // info, warning, success, error
+  targetGroups Json? // 目标用户组
+  targetCategories Json? // 目标分类
+  isActive  Boolean  @default(true)
+  startsAt  DateTime?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==================== 广告位 ====================
+model AdSlot {
+  id        String   @id @default(uuid())
+  name      String
+  position  String   // header, sidebar, in-content, footer
+  content   String   @db.Text // HTML/JS
+  platform  String   @default("all") // all, pc, mobile
+  isActive  Boolean  @default(true)
+  startsAt  DateTime?
+  expiresAt DateTime?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==================== 友情链接 ====================
+model FriendLink {
+  id        String   @id @default(uuid())
+  name      String
+  url       String
+  icon      String?
+  logo      String?
+  description String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// ==================== 日志系统 ====================
+model OperationLog {
+  id        String   @id @default(uuid())
+  action    String   // create, update, delete, login, etc.
+  target    String?  // 操作对象类型
+  targetId  String?  // 操作对象ID
+  detail    String?  @db.Text
+  ip        String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model LoginLog {
+  id        String   @id @default(uuid())
+  ip        String?
+  location  String?
+  device    String?
+  browser   String?
+  isSuccess Boolean  @default(true)
+  failReason String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([ip])
+}
+
+// ==================== 草稿箱 ====================
+model Draft {
+   id         String @id @default(uuid())
+   title      String?
+   content    String @db.Text
+  categoryId String?
+  tags       Json?
+  userId     String
+  user       User   @relation(fields: [userId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ==================== 签到系统 ====================
+model CheckIn {
+  id        String   @id @default(uuid())
+  userId    String
+  points    Int      @default(0)
+  streak    Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, createdAt])
+}
+
+// ==================== 积分商城 ====================
+model PointsItem {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  price       Int     // 积分价格
+  type        String  // badge, title, invite_code, vip
+  value       String? // 对应的值
+  stock       Int     @default(-1) // -1 无限
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model PointsOrder {
+  id           String   @id @default(uuid())
+  userId       String
+  itemId       String
+  pointsSpent  Int
+  createdAt    DateTime @default(now())
+}
+// ==================== 客服工作台 ====================
+
+// 争议工单
+model Dispute {
+  id            String        @id @default(uuid())
+  disputeNo     String        @unique
+  type          DisputeType
+  reason        String
+  description   String        @db.Text
+  evidence      Json?         // 买家/卖家举证图片
+  status        DisputeStatus @default(OPEN)
+  priority      DisputePriority @default(NORMAL)
+  result        String?       @db.Text // 处理结果
+  resultAmount  Float?        // 退款金额
+  resolvedAt    DateTime?
+  orderId       String
+  buyerId       String
+  sellerId      String
+  handlerId     String?       // 客服处理人
+  order         Order         @relation(fields: [orderId], references: [id])
+  buyer         User          @relation("DisputeBuyer", fields: [buyerId], references: [id])
+  seller        User          @relation("DisputeSeller", fields: [sellerId], references: [id])
+  handler       User?         @relation("DisputeHandler", fields: [handlerId], references: [id])
+  messages      DisputeMessage[]
+  logs          DisputeLog[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([status])
+  @@index([orderId])
+  @@index([handlerId])
+}
+
+enum DisputeType {
+  REFUND          // 仅退款
+  RETURN_REFUND   // 退货退款
+  QUALITY         // 商品质量
+  FRAUD           // 欺诈
+  NOT_RECEIVED    // 未收到货
+  WRONG_ITEM      // 货不对板
+  OTHER           // 其他
+}
+
+enum DisputeStatus {
+  OPEN            // 待处理
+  NEGOTIATING     // 协商中
+  CS_INTERVENTION // 客服介入
+  PENDING_EVIDENCE // 等待举证
+  PENDING_REVIEW  // 等待审核
+  RESOLVED        // 已解决
+  CLOSED          // 已关闭
+  ESCALATED       // 已升级
+}
+
+enum DisputePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// 争议对话
+model DisputeMessage {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  type      DisputeMessageType @default(TEXT)
+  images    Json?    // 附带图片
+  senderId  String
+  disputeId String
+  sender    User     @relation(fields: [senderId], references: [id])
+  dispute   Dispute  @relation(fields: [disputeId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([disputeId])
+}
+
+enum DisputeMessageType {
+  TEXT
+  IMAGE
+  SYSTEM        // 系统消息
+  CS_REPLY      // 客服回复
+  EVIDENCE      // 举证
+  RESULT        // 处理结果
+}
+
+// 争议操作日志
+model DisputeLog {
+  id        String   @id @default(uuid())
+  action    String   // status_change, assign, result, refund, etc.
+  detail    String?  @db.Text
+  operatorId String
+  disputeId String
+  operator  User     @relation(fields: [operatorId], references: [id])
+  dispute   Dispute  @relation(fields: [disputeId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([disputeId])
+}
+
+// 客服会话 (实时聊天)
+model CustomerServiceSession {
+  id         String   @id @default(uuid())
+  sessionId  String   @unique
+  status     SessionStatus @default(WAITING)
+  userId     String
+  agentId    String?
+  subject    String?
+  rating     Int?     // 1-5 满意度评分
+  ratedAt    DateTime?
+  closedAt   DateTime?
+  user       User     @relation(fields: [userId], references: [id])
+  agent      User?    @relation(fields: [agentId], references: [id])
+  messages   CustomerServiceMessage[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([status])
+  @@index([userId])
+  @@index([agentId])
+}
+
+enum SessionStatus {
+  WAITING       // 排队中
+  ACTIVE        // 进行中
+  CLOSED        // 已结束
+  RATED         // 已评价
+}
+
+// 客服聊天消息
+model CustomerServiceMessage {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  type      String   @default("text") // text, image, system, transfer
+  senderId  String?
+  sessionId String
+  sender    User?    @relation(fields: [senderId], references: [id])
+  session   CustomerServiceSession @relation(fields: [sessionId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+}
+
+// 客服工作状态
+model AgentStatus {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  isOnline    Boolean  @default(false)
+  isBusy      Boolean  @default(false)
+  maxSessions Int      @default(5)
+  currentSessions Int  @default(0)
+  totalHandled Int     @default(0)
+  avgRating   Float?   @default(0)
+  lastActiveAt DateTime?
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 快捷回复模板
+model QuickReply {
+  id        String   @id @default(uuid())
+  title     String
+  content   String   @db.Text
+  category  String?  // 分组
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}

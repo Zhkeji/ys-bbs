@@ -1,0 +1,7 @@
+import { apiSuccess } from '@/lib/auth'
+
+export async function POST() {
+  const response = apiSuccess(null, '已退出登录')
+  response.cookies.set('token', '', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 0, path: '/' })
+  return response
+}
